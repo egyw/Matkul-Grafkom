@@ -3,212 +3,205 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Demo Raytracer Dasar - Intersection (Configurable)</title>
+    <title>Demo Raytrace Dasar</title>
     <style>
-        body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #f0f0f0; margin: 0; }
-        canvas { border: 1px solid black; /* Background color will be set by config */ }
+        body { margin: 0; overflow: hidden; background-color: #333; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        canvas { border: 1px solid black; background-color: #f0f0f0; }
     </style>
-    <!-- Include gl-matrix library -->
-    <script src="https://cdn.jsdelivr.net/npm/gl-matrix@3.4.3/gl-matrix-min.js"></script>
 </head>
 <body>
-    <canvas id="raytraceCanvas"></canvas> <!-- Ukuran diatur oleh JS -->
+    <canvas id="raytraceCanvas" width="500" height="500"></canvas>
+
+    <!-- Muat gl-matrix dari CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/gl-matrix@3.4.3/gl-matrix-min.js"></script>
 
     <script>
-        // ======================================================
-        // KONFIGURASI SCENE (Format JSON-like)
-        // ======================================================
-        const config = {
+        // --- Konfigurasi Scene (JSON) ---
+        const sceneConfig = {
             canvas: {
                 width: 500,
                 height: 500
             },
             camera: {
-                origin: [0, 0, -2] // Posisi mata kamera [x, y, z]
+                position: [0, 0, -3], // Posisi mata kamera
+                lookAt:   [0, 0, 0],   // Titik yang dilihat kamera
+                up:       [0, 1, 0],   // Vektor 'atas' untuk kamera
+                fov:      60           // Field of View dalam derajat
             },
-            scene: {
-                // Warna background default jika sinar tidak mengenai objek [R, G, B]
-                backgroundColor: [208, 224, 240], // Biru muda
-                objects: [
-                    {
-                        type: 'sphere',                // Tipe objek
-                        center: [0, 0, 3],             // Posisi tengah [x, y, z]
-                        radius: 1.0,                   // Jari-jari
-                        color: [255, 0, 0]             // Warna [R, G, B] (Merah)
-                    }
-                    // --- Tambahkan objek lain di sini ---
-                    // Contoh:
-                    // {
-                    //     type: 'sphere',
-                    //     center: [-1.5, 0, 4],
-                    //     radius: 0.5,
-                    //     color: [0, 255, 0] // Hijau
-                    // },
-                    // {
-                    //     type: 'sphere',
-                    //     center: [1.5, -0.5, 3.5],
-                    //     radius: 0.8,
-                    //     color: [0, 0, 255] // Biru
-                    // }
-                ]
-            }
+            backgroundColor: [0.8, 0.9, 1.0], // Warna latar belakang (biru langit muda)
+            objects: [
+                {
+                    type: 'sphere',
+                    position: [-0.6, 0, 0],
+                    radius: 0.5,
+                    color: [1.0, 0.0, 0.0] // Merah
+                },
+                {
+                    type: 'sphere',
+                    position: [0.6, 0, 0],
+                    radius: 0.4, // Jari-jari berbeda
+                    color: [0.0, 0.0, 1.0] // Biru
+                },
+                 { // Tambahkan 'lantai' datar (bola sangat besar di bawah)
+                    type: 'sphere',
+                    position: [0, -100.5, 0], // Jauh di bawah
+                    radius: 100,
+                    color: [0.5, 0.8, 0.5] // Hijau pucat
+                }
+            ]
         };
-        // ======================================================
-        // AKHIR KONFIGURASI
-        // ======================================================
+        // --------------------------------
 
-
-        // --- Setup Awal ---
-        const canvas = document.getElementById('raytraceCanvas');
-        const ctx = canvas.getContext('2d');
-
-        // Set ukuran canvas dari config
-        canvas.width = config.canvas.width;
-        canvas.height = config.canvas.height;
-        // Set warna background canvas (sebagai fallback awal)
-        canvas.style.backgroundColor = `rgb(${config.scene.backgroundColor.join(',')})`;
-
-        const width = canvas.width;
-        const height = canvas.height;
-        const imageData = ctx.createImageData(width, height);
-        const pixels = imageData.data; // Array [R, G, B, A, R, G, B, A, ...]
-
-        // --- Alias untuk gl-matrix ---
+        // Alias untuk gl-matrix agar lebih mudah digunakan
         const vec3 = glMatrix.vec3;
 
-        // --- Helper: Fungsi Intersection (Konsep dari "helper.js") ---
+        // Fungsi utilitas vektor (menggunakan gl-matrix)
+        function normalize(out, v) { return vec3.normalize(out, v); }
+        function subtract(out, a, b) { return vec3.subtract(out, a, b); }
+        function dot(a, b) { return vec3.dot(a, b); }
+        function scale(out, v, s) { return vec3.scale(out, v, s); }
+        function add(out, a, b) { return vec3.add(out, a, b); }
+        function cross(out, a, b) { return vec3.cross(out, a, b); }
+        function length(v) { return vec3.length(v); }
 
-        /**
-         * Menghitung persimpangan antara sinar (ray) dan bola (sphere).
-         * @param {object} ray - Objek sinar { origin: vec3, direction: vec3 }
-         * @param {object} sphere - Objek bola { center: vec3, radius: number, color: [r,g,b] }
-         * @returns {number} Jarak t ke titik persimpangan terdekat, atau Infinity jika tidak ada persimpangan.
-         */
-        function intersectSphere(ray, sphere) {
+        // --- Fungsi Ray Tracing Utama ---
+
+        // Fungsi untuk menghitung interseksi sinar dengan bola
+        function intersectSphere(rayOrigin, rayDirection, sphere) {
             const oc = vec3.create();
-            vec3.subtract(oc, ray.origin, sphere.center);
+            subtract(oc, rayOrigin, sphere.position); // Vektor dari pusat bola ke asal sinar
 
-            const a = vec3.dot(ray.direction, ray.direction);
-            const b = 2.0 * vec3.dot(oc, ray.direction);
-            const c = vec3.dot(oc, oc) - sphere.radius * sphere.radius;
+            // Hitung koefisien persamaan kuadrat: a*t^2 + b*t + c = 0
+            const a = dot(rayDirection, rayDirection); // Harus 1 jika rayDirection dinormalisasi
+            const b = 2.0 * dot(oc, rayDirection);
+            const c = dot(oc, oc) - sphere.radius * sphere.radius;
+
             const discriminant = b * b - 4 * a * c;
 
             if (discriminant < 0) {
-                return Infinity;
+                return null; // Tidak ada interseksi
             } else {
-                const sqrtDiscriminant = Math.sqrt(discriminant);
-                const t1 = (-b - sqrtDiscriminant) / (2.0 * a);
-                const t2 = (-b + sqrtDiscriminant) / (2.0 * a);
-                const epsilon = 0.001;
+                const t1 = (-b - Math.sqrt(discriminant)) / (2.0 * a);
+                const t2 = (-b + Math.sqrt(discriminant)) / (2.0 * a);
 
-                if (t1 > epsilon && (t1 < t2 || t2 <= epsilon)) { // t1 is the closest valid hit
-                    return t1;
+                // Cari t positif terkecil (interseksi terdekat di depan kamera)
+                const t = Math.min(t1, t2);
+                if (t > 0.001) { // Beri sedikit epsilon untuk menghindari self-intersection
+                    return t;
                 }
-                if (t2 > epsilon) { // t2 is the closest valid hit
-                    return t2;
+                // Jika t terkecil negatif, coba t yang lebih besar
+                if (t2 > 0.001) {
+                     return t2;
                 }
-                return Infinity; // Both hits are behind or too close
+                return null; // Kedua interseksi di belakang atau terlalu dekat
             }
         }
 
-        // --- Inisialisasi Scene dari Config ---
-        const camera = {
-            origin: vec3.fromValues(...config.camera.origin) // Konversi array ke vec3
-        };
+        // Fungsi untuk melacak sinar dan menentukan warna piksel
+        function traceRay(rayOrigin, rayDirection, objects) {
+            let closestHit = null;
+            let minDistance = Infinity;
 
-        // Proses objek dari config menjadi format yang siap digunakan (dengan vec3)
-        const sceneObjects = config.scene.objects.map(objConfig => {
-            const processedObj = { ...objConfig }; // Salin properti dasar
-            if (processedObj.type === 'sphere') {
-                processedObj.center = vec3.fromValues(...objConfig.center); // Konversi center
-            }
-            // Tambahkan konversi untuk tipe objek lain di sini jika ada
-            return processedObj;
-        }).filter(obj => obj !== null); // Filter jika ada tipe yg tidak disupport
-
-        const backgroundColor = config.scene.backgroundColor;
-
-        // --- Fungsi Raytracing Utama ---
-
-        /**
-         * Melakukan trace sinar untuk satu pixel dan menentukan warnanya.
-         * @param {object} ray - Sinar yang akan di-trace { origin: vec3, direction: vec3 }
-         * @returns {[r,g,b]|null} Warna objek yang terkena sinar, atau null jika tidak ada.
-         */
-        function traceRay(ray) {
-            let closestT = Infinity;
-            let hitObject = null;
-
-            for (const obj of sceneObjects) {
-                let t = Infinity;
-                // Panggil fungsi intersection berdasarkan tipe objek
+            for (const obj of objects) {
                 if (obj.type === 'sphere') {
-                   t = intersectSphere(ray, obj);
-                }
-                // Tambahkan 'else if (obj.type === 'plane')' dst. di sini
-
-                // Cek apakah ini intersection terdekat sejauh ini
-                if (t < closestT) {
-                    closestT = t;
-                    hitObject = obj;
-                }
-            }
-
-            if (hitObject) {
-                return hitObject.color;
-            } else {
-                return null; // Kena background
-            }
-        }
-
-        // --- Render Loop ---
-        function renderScene() {
-            console.time("RenderTime");
-
-            const aspectRatio = width / height;
-
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const u = x / (width - 1);
-                    const v = y / (height - 1);
-                    const screenX = (2.0 * u - 1.0) * aspectRatio;
-                    const screenY = 1.0 - 2.0 * v; // Y dibalik
-
-                    const ray = {
-                        origin: vec3.clone(camera.origin),
-                        direction: vec3.create()
-                    };
-                    const targetPoint = vec3.fromValues(screenX, screenY, 0);
-                    vec3.subtract(ray.direction, targetPoint, ray.origin);
-                    vec3.normalize(ray.direction, ray.direction);
-
-                    const color = traceRay(ray);
-
-                    const pixelIndex = (y * width + x) * 4;
-
-                    if (color) {
-                        pixels[pixelIndex + 0] = color[0]; // R
-                        pixels[pixelIndex + 1] = color[1]; // G
-                        pixels[pixelIndex + 2] = color[2]; // B
-                        pixels[pixelIndex + 3] = 255;       // A
-                    } else {
-                        // Gunakan warna background dari config
-                        pixels[pixelIndex + 0] = backgroundColor[0]; // R
-                        pixels[pixelIndex + 1] = backgroundColor[1]; // G
-                        pixels[pixelIndex + 2] = backgroundColor[2]; // B
-                        pixels[pixelIndex + 3] = 255;       // A
+                    const distance = intersectSphere(rayOrigin, rayDirection, obj);
+                    if (distance !== null && distance < minDistance) {
+                        minDistance = distance;
+                        closestHit = obj;
                     }
                 }
+                // Bisa ditambahkan tipe objek lain di sini (misal: plane)
             }
 
-            ctx.putImageData(imageData, 0, 0);
-            console.timeEnd("RenderTime");
-            console.log("Render selesai.");
+            if (closestHit) {
+                return closestHit.color; // Kembalikan warna objek yang terkena
+            } else {
+                return sceneConfig.backgroundColor; // Kembalikan warna latar belakang
+            }
         }
 
-        // --- Jalankan Render ---
-        renderScene();
+        // --- Inisialisasi dan Render ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const canvas = document.getElementById('raytraceCanvas');
+            const ctx = canvas.getContext('2d');
+            const width = sceneConfig.canvas.width;
+            const height = sceneConfig.canvas.height;
 
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data; // Array Uint8ClampedArray [R, G, B, A, R, G, B, A, ...]
+
+            // Pengaturan Kamera
+            const eye = sceneConfig.camera.position;
+            const lookAt = sceneConfig.camera.lookAt;
+            const up = sceneConfig.camera.up;
+            const fov = sceneConfig.camera.fov * Math.PI / 180; // Konversi FOV ke radian
+            const aspectRatio = width / height;
+            const halfHeight = Math.tan(fov / 2.0);
+            const halfWidth = aspectRatio * halfHeight;
+
+            // Hitung vektor basis kamera
+            const forward = vec3.create();
+            const right = vec3.create();
+            const upActual = vec3.create(); // Vektor 'up' yang tegak lurus
+
+            subtract(forward, lookAt, eye);
+            normalize(forward, forward);
+
+            cross(right, forward, up);
+            normalize(right, right);
+
+            cross(upActual, right, forward); // Pastikan up tegak lurus dengan right dan forward
+            normalize(upActual, upActual);
+
+            console.log("Memulai Ray Tracing...");
+            const startTime = performance.now();
+
+            // Loop untuk setiap piksel
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    // Hitung koordinat layar (-1 sampai 1)
+                    const u = (x + 0.5) / width * 2.0 - 1.0; // +0.5 untuk pusat piksel
+                    const v = 1.0 - (y + 0.5) / height * 2.0; // Balik sumbu Y (canvas Y ke bawah)
+
+                    // Hitung arah sinar primer
+                    const rayDirection = vec3.create();
+                    const tempVec1 = vec3.create();
+                    const tempVec2 = vec3.create();
+
+                    scale(tempVec1, right, u * halfWidth);      // Komponen kanan/kiri
+                    scale(tempVec2, upActual, v * halfHeight); // Komponen atas/bawah
+
+                    add(rayDirection, forward, tempVec1);       // Tambahkan komponen kanan/kiri
+                    add(rayDirection, rayDirection, tempVec2);  // Tambahkan komponen atas/bawah
+                    normalize(rayDirection, rayDirection);      // Normalisasi arah sinar
+
+                    // Lacak sinar dan dapatkan warna
+                    const color = traceRay(eye, rayDirection, sceneConfig.objects);
+
+                    // Tulis warna ke ImageData
+                    const index = (y * width + x) * 4;
+                    data[index]     = Math.floor(color[0] * 255); // R
+                    data[index + 1] = Math.floor(color[1] * 255); // G
+                    data[index + 2] = Math.floor(color[2] * 255); // B
+                    data[index + 3] = 255;                         // A (Opaque)
+                }
+                 // Update progress sederhana di console
+                if (y % 50 === 0 && y > 0) {
+                    console.log(`Rendering baris ${y}/${height}...`);
+                }
+            }
+
+            // Gambar hasil ke canvas
+            ctx.putImageData(imageData, 0, 0);
+
+            const endTime = performance.now();
+            console.log(`Ray Tracing Selesai dalam ${(endTime - startTime).toFixed(2)} ms`);
+            console.log("Scene:");
+            console.log(" - Bola Merah: Posisi", sceneConfig.objects[0].position, "Radius", sceneConfig.objects[0].radius);
+            console.log(" - Bola Biru: Posisi", sceneConfig.objects[1].position, "Radius", sceneConfig.objects[1].radius);
+            console.log(" - Lantai: Posisi", sceneConfig.objects[2].position, "Radius", sceneConfig.objects[2].radius);
+
+        });
     </script>
 </body>
 </html>
