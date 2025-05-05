@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Raytrace Dasar - Intersection</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh; /* Tinggi minimal viewport */
+            margin: 0;
+            background-color: #f0f0f0; /* Warna latar belakang abu-abu muda */
+        }
+        canvas {
+            border: 1px solid black; /* Tambahkan border agar canvas terlihat jelas */
+            background-color: white; /* Latar belakang canvas putih */
+        }
+    </style>
+    <!-- Memuat library gl-matrix dari CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/3.4.3/gl-matrix-min.js"></script>
+</head>
+<body>
+    <canvas id="raytraceCanvas" width="500" height="500"></canvas>
+
+    <script>
+        // --- Helper Vektor (menggunakan gl-matrix) ---
+        // Kita akan menggunakan fungsi dari library glMatrix yang sudah dimuat
+        const vec3 = glMatrix.vec3; // Alias untuk kemudahan
+
+        // Fungsi tambahan jika diperlukan (gl-matrix sudah mencakup sebagian besar)
+        // Contoh: vec3.subtract(out, a, b), vec3.dot(a, b), vec3.normalize(out, a)
+
+        // --- Konfigurasi Scene ---
+        const canvas = document.getElementById('raytraceCanvas');
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+
+        // Warna
+        const COLOR_RED = [255, 0, 0, 255]; // RGBA
+        const COLOR_BACKGROUND = [135, 206, 235, 255]; // Biru langit muda (Sky Blue)
+
+        // Kamera
+        const camera = {
+            position: vec3.fromValues(0, 0, -3), // Posisi mata kamera
+            // Kita tidak perlu target atau up vector untuk ray generation sederhana ini
+            // Asumsi kamera melihat ke arah sumbu Z positif
+            viewportHeight: 1.0, // Tinggi viewport virtual
+            viewportWidth: 1.0 * (width / height) // Lebar viewport disesuaikan rasio aspek
+        };
+
+        // Objek dalam Scene
+        const sceneObjects = [
+            {
+                type: 'sphere',
+                center: vec3.fromValues(0, 0, 0), // Di tengah scene
+                radius: 0.5,                      // Radius bola
+                color: COLOR_RED
+            }
+            // Anda bisa menambahkan objek lain di sini nanti
+            // { type: 'sphere', center: vec3.fromValues(1, 0, 1), radius: 0.3, color: [0, 255, 0, 255] }
+        ];
+
+        // --- Logika Raytracing ---
+
+        /**
+         * Menghitung intersection antara ray dan bola.
+         * @param {vec3} rayOrigin - Titik asal ray.
+         * @param {vec3} rayDirection - Vektor arah ray (sudah dinormalisasi).
+         * @param {object} sphere - Objek bola { center, radius }.
+         * @returns {number|null} Jarak (t) ke titik intersection terdekat, atau null jika tidak ada intersection.
+         */
+        function intersectSphere(rayOrigin, rayDirection, sphere) {
+            const oc = vec3.create(); // Vektor dari origin ke center bola
+            vec3.subtract(oc, rayOrigin, sphere.center);
+
+            const a = vec3.dot(rayDirection, rayDirection); // Harus 1 jika rayDirection dinormalisasi
+            const b = 2.0 * vec3.dot(oc, rayDirection);
+            const c = vec3.dot(oc, oc) - sphere.radius * sphere.radius;
+            const discriminant = b * b - 4 * a * c;
+
+            if (discriminant < 0) {
+                return null; // Tidak ada intersection
+            } else {
+                // Hitung dua solusi t
+                const t1 = (-b - Math.sqrt(discriminant)) / (2.0 * a);
+                const t2 = (-b + Math.sqrt(discriminant)) / (2.0 * a);
+
+                // Kita inginkan intersection terdekat yang ada di depan kamera (t > 0)
+                if (t1 > 0.001) return t1; // Cek t1 dulu karena lebih kecil
+                if (t2 > 0.001) return t2; // Cek t2 jika t1 di belakang kamera
+
+                return null; // Kedua intersection di belakang kamera
+            }
+        }
+
+        /**
+         * Melacak sebuah ray melalui scene dan mencari objek terdekat yang di-hit.
+         * @param {vec3} rayOrigin - Titik asal ray.
+         * @param {vec3} rayDirection - Vektor arah ray (sudah dinormalisasi).
+         * @param {Array} objects - Array objek dalam scene.
+         * @returns {object|null} Objek yang di-hit atau null jika tidak ada.
+         */
+        function traceRay(rayOrigin, rayDirection, objects) {
+            let closestHit = null;
+            let minT = Infinity;
+
+            for (const obj of objects) {
+                let t = null;
+                if (obj.type === 'sphere') {
+                    t = intersectSphere(rayOrigin, rayDirection, obj);
+                }
+                // Tambahkan check untuk tipe objek lain di sini nanti (e.g., plane)
+
+                if (t !== null && t < minT) {
+                    minT = t;
+                    closestHit = obj;
+                }
+            }
+            return closestHit;
+        }
+
+        /**
+         * Fungsi utama untuk merender scene.
+         */
+        function render() {
+            console.log("Mulai render...");
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+
+            const viewportDist = 1.0; // Jarak dari kamera ke viewport virtual
+            const viewportBottomLeft = vec3.create();
+            vec3.set(viewportBottomLeft,
+                camera.position[0] - camera.viewportWidth / 2,
+                camera.position[1] - camera.viewportHeight / 2,
+                camera.position[2] + viewportDist
+            );
+
+            const pixelDeltaU = vec3.fromValues(camera.viewportWidth / width, 0, 0);
+            const pixelDeltaV = vec3.fromValues(0, camera.viewportHeight / height, 0);
+
+            for (let j = 0; j < height; j++) {
+                for (let i = 0; i < width; i++) {
+                    // Hitung posisi titik pixel di viewport virtual
+                    const pixelCenter = vec3.create();
+                    const scaledDeltaU = vec3.create();
+                    const scaledDeltaV = vec3.create();
+
+                    vec3.scale(scaledDeltaU, pixelDeltaU, i + 0.5); // +0.5 ke tengah pixel
+                    vec3.scale(scaledDeltaV, pixelDeltaV, j + 0.5);
+
+                    vec3.add(pixelCenter, viewportBottomLeft, scaledDeltaU);
+                    vec3.add(pixelCenter, pixelCenter, scaledDeltaV); // Titik di viewport
+
+                    // Buat ray dari kamera ke titik pixel di viewport
+                    const rayOrigin = camera.position;
+                    const rayDirection = vec3.create();
+                    vec3.subtract(rayDirection, pixelCenter, rayOrigin);
+                    vec3.normalize(rayDirection, rayDirection);
+
+                    // Lacak ray
+                    const hitObject = traceRay(rayOrigin, rayDirection, sceneObjects);
+
+                    // Tentukan warna pixel
+                    let pixelColor = COLOR_BACKGROUND;
+                    if (hitObject) {
+                        pixelColor = hitObject.color; // Gunakan warna objek yang di-hit
+                    }
+
+                    // Set warna ke ImageData (perhatikan sumbu Y canvas terbalik dari viewport Y)
+                    const pixelIndex = ((height - 1 - j) * width + i) * 4; // Balik j untuk Y canvas
+                    data[pixelIndex + 0] = pixelColor[0]; // R
+                    data[pixelIndex + 1] = pixelColor[1]; // G
+                    data[pixelIndex + 2] = pixelColor[2]; // B
+                    data[pixelIndex + 3] = pixelColor[3]; // A
+                }
+            }
+
+            // Gambar hasil ke canvas
+            ctx.putImageData(imageData, 0, 0);
+            console.log("Render selesai.");
+        }
+
+        // --- Jalankan Render ---
+        render();
+
+    </script>
+</body>
+</html>
