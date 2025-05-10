@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Basic Ray Tracing Demo (No Lighting)</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f0f0f0;
+        }
+        canvas {
+            border: 1px solid #333;
+            margin-bottom: 20px;
+            background-color: black;
+        }
+        .info {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .controls {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <h1>Ray Tracing Demo</h1>
+    <div class="info">
+        <p>Basic Ray Tracing with Multiple Spheres (No Lighting)</p>
+    </div>
+    <canvas id="canvas" width="500" height="500"></canvas>
+    <div class="controls">
+        <button id="render">Render Scene</button>
+    </div>
+
+    <!-- GL Matrix Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+
+    <script>
+        // Scene Configuration
+        const config = {
+            backgroundColor: [0.1, 0.1, 0.1],
+            camera: {
+                position: [0, 0, -5],
+                lookAt: [0, 0, 0],
+                up: [0, 1, 0],
+                fov: 60,
+                aspectRatio: 1.0
+            },
+            spheres: [
+                {
+                    center: [-1.5, 0.0, 0],
+                    radius: 1,
+                    color: [1.0, 0.0, 0.0]  // Red
+                },
+                {
+                    center: [0, 0, -1],
+                    radius: 1,
+                    color: [1.0, 1.0, 0.0]  // Yellow
+                },
+                {
+                    center: [1.5, 0, 0],
+                    radius: 1,
+                    color: [0.0, 0.0, 1.0]  // Blue
+                }
+            ]
+        };
+
+        // Utility functions
+        function normalize(v) {
+            const len = Math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+            return [v[0]/len, v[1]/len, v[2]/len];
+        }
+
+        function subtract(a, b) {
+            return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+        }
+
+        function add(a, b) {
+            return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+        }
+
+        function scale(v, s) {
+            return [v[0] * s, v[1] * s, v[2] * s];
+        }
+
+        function dot(a, b) {
+            return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+        }
+
+        // Ray-sphere intersection
+        function intersectRaySphere(origin, direction, sphere) {
+            const center = sphere.center;
+            const radius = sphere.radius;
+
+            const oc = subtract(origin, center);
+            const a = dot(direction, direction);
+            const b = 2 * dot(oc, direction);
+            const c = dot(oc, oc) - radius * radius;
+            const discriminant = b * b - 4 * a * c;
+
+            if (discriminant < 0) {
+                return Infinity; // No intersection
+            }
+
+            const t1 = (-b - Math.sqrt(discriminant)) / (2 * a);
+            const t2 = (-b + Math.sqrt(discriminant)) / (2 * a);
+
+            if (t1 > 0.001) {
+                return t1;
+            }
+            if (t2 > 0.001) {
+                return t2;
+            }
+            return Infinity;
+        }
+
+        function findClosestIntersection(origin, direction, minT, maxT) {
+            let closestT = Infinity;
+            let closestSphere = null;
+
+            for (const sphere of config.spheres) {
+                const t = intersectRaySphere(origin, direction, sphere);
+                if (t > minT && t < maxT && t < closestT) {
+                    closestT = t;
+                    closestSphere = sphere;
+                }
+            }
+
+            return { sphere: closestSphere, distance: closestT };
+        }
+
+        function traceRay(origin, direction, minT, maxT) {
+            const { sphere, distance } = findClosestIntersection(origin, direction, minT, maxT);
+
+            if (!sphere) {
+                return config.backgroundColor; // Background color
+            }
+            
+            // Simply return the sphere's color (no lighting calculations)
+            return sphere.color;
+        }
+
+        function canvasToViewport(x, y, width, height) {
+            const fovRadians = config.camera.fov * Math.PI / 180;
+            const aspectRatio = config.camera.aspectRatio;
+            
+            return [
+                (2 * x / width - 1) * Math.tan(fovRadians / 2) * aspectRatio,
+                (1 - 2 * y / height) * Math.tan(fovRadians / 2),
+                1
+            ];
+        }
+
+        function clamp(value, min, max) {
+            return Math.max(min, Math.min(value, max));
+        }
+
+        // Main render function
+        function renderScene() {
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+            
+            const origin = config.camera.position;
+            
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const direction = canvasToViewport(x, y, width, height);
+                    const normalizedDir = normalize(direction);
+                    
+                    const color = traceRay(
+                        origin,
+                        normalizedDir,
+                        1,
+                        Infinity
+                    );
+                    
+                    const index = (y * width + x) * 4;
+                    data[index] = clamp(color[0] * 255, 0, 255);     // R
+                    data[index + 1] = clamp(color[1] * 255, 0, 255); // G
+                    data[index + 2] = clamp(color[2] * 255, 0, 255); // B
+                    data[index + 3] = 255;                           // A
+                }
+            }
+            
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        // Event listeners
+        document.getElementById('render').addEventListener('click', renderScene);
+
+        // Initial render
+        window.onload = renderScene;
+    </script>
+</body>
+</html>
