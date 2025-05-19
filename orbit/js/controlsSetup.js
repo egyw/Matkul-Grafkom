@@ -7,23 +7,16 @@ function setupControls() {
     const camera = getCamera();
     const renderer = getRenderer();
     controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
+    controls.enableDamping = true; // Efek pergerakan yang lebih halus
     controls.dampingFactor = 0.05;
-    controls.target.set(0, 1.5, 0);
-
-    // --- Aktifkan Auto Rotate ---
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = 0.5; // Kecepatan rotasi. Nilai positif berputar ke kiri, negatif ke kanan.
-                                     // Defaultnya adalah 2.0. Kita buat lebih lambat.
-    // -----------------------------
-
-    controls.update(); // Panggil update sekali setelah konfigurasi awal
-    return controls;
+    controls.target.set(0, 1.5, 0); // Target orbit di sekitar pusat objek
+    controls.update();
+    return controls; // Kembalikan instance controls
 }
 
 function updateControls() {
     if (controls) {
-        controls.update(); // update() harus dipanggil di loop animasi agar autoRotate dan damping bekerja.
+        controls.update();
     }
 }
 
