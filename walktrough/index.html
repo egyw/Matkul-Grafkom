@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three.js Walkthrough</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #cccccc; font-family: Arial, sans-serif; }
+        canvas { display: block; }
+        #blocker {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            display: flex; /* Menggunakan flexbox untuk menengahkan */
+            justify-content: center; /* Menengahkan secara horizontal */
+            align-items: center; /* Menengahkan secara vertikal */
+        }
+        #instructions {
+            width: 50%;
+            max-width: 400px; /* Batas lebar maksimum */
+            padding: 20px;
+            background-color: white;
+            border-radius: 10px;
+            text-align: center;
+            cursor: pointer; /* Membuatnya terlihat bisa diklik */
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        #instructions p {
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        #instructions span {
+            font-size: 24px;
+            display: block; /* Membuatnya menjadi block agar bisa diatur margin */
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="blocker">
+        <div id="instructions">
+            <span>Klik untuk Memulai</span>
+            <p>
+                W, A, S, D = Bergerak<br/>
+                Mouse = Melihat Sekeliling<br/>
+                ESC = Melepas Kontrol Mouse
+            </p>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
